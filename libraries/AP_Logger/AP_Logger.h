@@ -101,6 +101,9 @@ enum class LogEvent : uint8_t {
     NOT_SURFACED = 164,
     BOTTOMED = 165,
     NOT_BOTTOMED = 166,
+
+    FENCE_PATH_ENABLE = 170,
+    FENCE_PATH_DISABLE = 171,
 };
 
 enum class LogDataID : uint8_t {

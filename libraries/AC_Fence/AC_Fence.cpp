@@ -55,7 +55,7 @@ const AP_Param::GroupInfo AC_Fence::var_info[] = {
 
     // @Param: TYPE
     // @DisplayName: Fence Type
-    // @Description: Configured fence types held as bitmask. Max altitide, Circle and Polygon fences will be immediately enabled if configured. Min altitude fence will only be enabled once the minimum altitude is reached.
+    // @Description: Configured fence types held as bitmask. Max altitude, Circle and Polygon fences will be immediately enabled if configured. Min altitude fence will only be enabled once the minimum altitude is reached.
     // @Bitmask{Rover}: 1:Circle Centered on Home,2:Inclusion/Exclusion Circles+Polygons
     // @Bitmask{Copter, Plane, Sub}: 0:Max altitude,1:Circle Centered on Home,2:Inclusion/Exclusion Circles+Polygons,3:Min altitude
     // @User: Standard
@@ -141,7 +141,7 @@ const AP_Param::GroupInfo AC_Fence::var_info[] = {
 
     // @Param{Plane, Copter}: OPTIONS
     // @DisplayName: Fence options
-    // @Description: When bit 0 is set sisable mode change following fence action until fence breach is cleared. When bit 1 is set the allowable flight areas is the union of all polygon and circle fence areas instead of the intersection, which means a fence breach occurs only if you are outside all of the fence areas.
+    // @Description: When bit 0 is set disable mode change following fence action until fence breach is cleared. When bit 1 is set the allowable flight areas is the union of all polygon and circle fence areas instead of the intersection, which means a fence breach occurs only if you are outside all of the fence areas.
     // @Bitmask: 0:Disable mode change following fence action until fence breach is cleared, 1:Allow union of inclusion areas
     // @User: Standard
     AP_GROUPINFO_FRAME("OPTIONS", 11, AC_Fence, _options, static_cast<uint16_t>(AC_FENCE_OPTIONS_DEFAULT), AP_PARAM_FRAME_PLANE | AP_PARAM_FRAME_COPTER | AP_PARAM_FRAME_TRICOPTER | AP_PARAM_FRAME_HELI),
@@ -175,6 +175,7 @@ void AC_Fence::get_fence_names(uint8_t fences, ExpandingString& msg)
         "Circle",
         "Polygon",
         "Min Alt",
+        "Path",
     };
     uint8_t i = 0;
     uint8_t nfences = 0;
@@ -274,6 +275,9 @@ uint8_t AC_Fence::enable(bool value, uint8_t fence_types, bool update_auto_mask)
     if (fences_to_change & AC_FENCE_TYPE_POLYGON) {
         AP::logger().Write_Event(value ? LogEvent::FENCE_POLYGON_ENABLE : LogEvent::FENCE_POLYGON_DISABLE);
     }
+    if (fences_to_change & AC_FENCE_TYPE_PATH) {
+        AP::logger().Write_Event(value ? LogEvent::FENCE_PATH_ENABLE : LogEvent::FENCE_PATH_DISABLE);
+    }
 #endif
 
     _enabled_fences = enabled_fences;
@@ -356,8 +360,12 @@ uint8_t AC_Fence::get_auto_disable_fences(void) const
 uint8_t AC_Fence::present() const
 {
     uint8_t mask = AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_ALT_MIN | AC_FENCE_TYPE_ALT_MAX;
-    if (_poly_loader.total_fence_count() > 0) {
+
+    if (_poly_loader.total_poly_fence_count() > 0) {
         mask |= AC_FENCE_TYPE_POLYGON;
+    }
+    if (_poly_loader.path_fence_count() > 0) {
+        mask |= AC_FENCE_TYPE_PATH;
     }
 
     return _configured_fences.get() & mask;
@@ -384,6 +392,27 @@ bool AC_Fence::pre_arm_check_polygon(char *failure_msg, const uint8_t failure_ms
 
     if (!_poly_loader.check_inclusion_circle_margin(_margin)) {
         hal.util->snprintf(failure_msg, failure_msg_len, "Polygon fence margin is less than inclusion circle radius");
+        return false;
+    }
+
+    return true;
+}
+
+// additional checks for the path fence:
+bool AC_Fence::pre_arm_check_path(char *failure_msg, const uint8_t failure_msg_len) const
+{
+    if (!(_configured_fences & AC_FENCE_TYPE_PATH)) {
+        // not enabled; all good
+        return true;
+    }
+
+    if (! _poly_loader.loaded()) {
+        hal.util->snprintf(failure_msg, failure_msg_len, "Path fence(s) invalid");
+        return false;
+    }
+
+    if (!_poly_loader.check_inclusion_circle_margin(_margin)) {
+        hal.util->snprintf(failure_msg, failure_msg_len, "Path fence margin is less than inclusion circle radius");
         return false;
     }
 
@@ -449,7 +478,8 @@ bool AC_Fence::pre_arm_check(char *failure_msg, const uint8_t failure_msg_len) c
     // if we have horizontal limits enabled, check we can get a
     // relative position from the AHRS
     if ((_configured_fences & AC_FENCE_TYPE_CIRCLE) ||
-        (_configured_fences & AC_FENCE_TYPE_POLYGON)) {
+        (_configured_fences & AC_FENCE_TYPE_POLYGON) ||
+        (_configured_fences & AC_FENCE_TYPE_PATH)) {
         Vector2f position;
         if (!AP::ahrs().get_relative_position_NE_home(position)) {
             hal.util->snprintf(failure_msg, failure_msg_len, "Fence requires position");
@@ -458,6 +488,10 @@ bool AC_Fence::pre_arm_check(char *failure_msg, const uint8_t failure_msg_len) c
     }
 
     if (!pre_arm_check_polygon(failure_msg, failure_msg_len)) {
+        return false;
+    }
+
+    if (!pre_arm_check_path(failure_msg, failure_msg_len)) {
         return false;
     }
 
@@ -649,6 +683,30 @@ bool AC_Fence::check_fence_polygon()
     return false;
 }
 
+// check_fence_path - returns true if the path fence is freshly
+// breached.
+bool AC_Fence::check_fence_path()
+{
+    if (!(get_enabled_fences() & AC_FENCE_TYPE_PATH)) {
+        // not enabled; no breach
+        clear_breach(AC_FENCE_TYPE_PATH);
+        return false;
+    }
+
+    const bool was_breached = _breached_fences & AC_FENCE_TYPE_PATH;
+    if (_poly_loader.breached()) {
+        if (!was_breached) {
+            record_breach(AC_FENCE_TYPE_PATH);
+            return true;
+        }
+        return false;
+    }
+    if (was_breached) {
+        clear_breach(AC_FENCE_TYPE_PATH);
+    }
+    return false;
+}
+
 /// check_fence_circle - returns true if the circle fence (defined via
 /// parameters) has been freshly breached.  May also set up a backup
 /// fence outside the fence and return a fresh breach if that backup
@@ -748,6 +806,11 @@ uint8_t AC_Fence::check(bool disable_auto_fences)
         ret |= AC_FENCE_TYPE_POLYGON;
     }
 
+    // path fence check
+    if (!(disabled_fences & AC_FENCE_TYPE_PATH) && check_fence_path()) {
+        ret |= AC_FENCE_TYPE_PATH;
+    }
+
     // check if pilot is attempting to recover manually
     // this is done last so that _breached_fences is correct
     if (_manual_recovery_start_ms != 0) {
@@ -796,6 +859,13 @@ bool AC_Fence::check_destination_within_fence(const Location& loc)
 
     // polygon fence check
     if ((get_enabled_fences() & AC_FENCE_TYPE_POLYGON)) {
+        if (_poly_loader.breached(loc)) {
+            return false;
+        }
+    }
+
+    // path fence check
+    if ((get_enabled_fences() & AC_FENCE_TYPE_PATH)) {
         if (_poly_loader.breached(loc)) {
             return false;
         }
