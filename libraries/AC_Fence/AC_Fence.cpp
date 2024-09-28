@@ -22,7 +22,7 @@ extern const AP_HAL::HAL& hal;
 #elif APM_BUILD_TYPE(APM_BUILD_ArduPlane)
 #define AC_FENCE_TYPE_DEFAULT AC_FENCE_TYPE_POLYGON
 #else
-#define AC_FENCE_TYPE_DEFAULT AC_FENCE_TYPE_ALT_MAX | AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_POLYGON
+#define AC_FENCE_TYPE_DEFAULT AC_FENCE_TYPE_ALT_MAX | AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_POLYGON | AC_FENCE_TYPE_PATH
 #endif
 
 // default boundaries
@@ -361,10 +361,12 @@ uint8_t AC_Fence::present() const
 {
     uint8_t mask = AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_ALT_MIN | AC_FENCE_TYPE_ALT_MAX;
 
-    if (_poly_loader.total_poly_fence_count() > 0) {
+    uint8_t paths = _poly_loader.path_fence_count();
+    
+    if ((_poly_loader.total_fence_count() - paths) > 0) {
         mask |= AC_FENCE_TYPE_POLYGON;
     }
-    if (_poly_loader.path_fence_count() > 0) {
+    if (paths > 0) {
         mask |= AC_FENCE_TYPE_PATH;
     }
 

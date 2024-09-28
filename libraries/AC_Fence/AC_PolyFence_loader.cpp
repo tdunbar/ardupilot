@@ -115,10 +115,12 @@ bool AC_PolyFence_loader::find_storage_offset_for_seq(const uint16_t seq, uint16
         break;
     case AC_PolyFenceType::POLYGON_INCLUSION:
     case AC_PolyFenceType::POLYGON_EXCLUSION:
+    case AC_PolyFenceType::PATH_INCLUSION:
         vertex_count_offset = offset;
         offset += 1; // the count of points in the fence
         offset += (delta * 8);
         break;
+    case AC_PolyFenceType::PATH_EXIT_POINT:
     case AC_PolyFenceType::RETURN_POINT:
         if (delta != 0) {
             INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
@@ -170,11 +172,13 @@ bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PolyFenceItem &item)
         break;
     case AC_PolyFenceType::POLYGON_INCLUSION:
     case AC_PolyFenceType::POLYGON_EXCLUSION:
+    case AC_PolyFenceType::PATH_INCLUSION:
         if (!read_latlon_from_storage(offset, item.loc)) {
             return false;
         }
         item.vertex_count = fence_storage.read_uint8(vertex_count_offset);
         break;
+    case AC_PolyFenceType::PATH_EXIT_POINT:
     case AC_PolyFenceType::RETURN_POINT:
         if (!read_latlon_from_storage(offset, item.loc)) {
             return false;
@@ -227,7 +231,7 @@ bool AC_PolyFence_loader::breached() const
 //   returns true if location is outside the boundary
 bool AC_PolyFence_loader::breached(const Location& loc) const
 {
-    if (!loaded() || total_fence_count() == 0) {
+    if (!loaded() || total_poly_fence_count() == 0) {
         return false;
     }
 
@@ -374,6 +378,8 @@ bool AC_PolyFence_loader::scan_eeprom(scan_fn_t scan_fn)
         case AC_PolyFenceType::CIRCLE_INCLUSION_INT:
         case AC_PolyFenceType::CIRCLE_EXCLUSION_INT:
         case AC_PolyFenceType::RETURN_POINT:
+        case AC_PolyFenceType::PATH_INCLUSION:
+        case AC_PolyFenceType::PATH_EXIT_POINT:
             break;
         default:
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -390,6 +396,7 @@ bool AC_PolyFence_loader::scan_eeprom(scan_fn_t scan_fn)
             _eos_offset = read_offset-1;
             all_done = true;
             break;
+        case AC_PolyFenceType::PATH_INCLUSION:
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION: {
             const uint8_t vertex_count = fence_storage.read_uint8(read_offset);
@@ -405,6 +412,7 @@ bool AC_PolyFence_loader::scan_eeprom(scan_fn_t scan_fn)
             read_offset += 4; // for radius
             break;
         }
+        case AC_PolyFenceType::PATH_EXIT_POINT:
         case AC_PolyFenceType::RETURN_POINT:
             read_offset += 8; // for latlon
             break;
@@ -424,6 +432,7 @@ void AC_PolyFence_loader::scan_eeprom_count_fences(const AC_PolyFenceType type, 
     case AC_PolyFenceType::END_OF_STORAGE:
         INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
         break;
+    case AC_PolyFenceType::PATH_INCLUSION:
     case AC_PolyFenceType::POLYGON_EXCLUSION:
     case AC_PolyFenceType::POLYGON_INCLUSION: {
         const uint8_t vertex_count = fence_storage.read_uint8(read_offset+1); // skip type
@@ -434,6 +443,7 @@ void AC_PolyFence_loader::scan_eeprom_count_fences(const AC_PolyFenceType type, 
     case AC_PolyFenceType::CIRCLE_EXCLUSION:
     case AC_PolyFenceType::CIRCLE_INCLUSION_INT:
     case AC_PolyFenceType::CIRCLE_EXCLUSION_INT:
+    case AC_PolyFenceType::PATH_EXIT_POINT:
     case AC_PolyFenceType::RETURN_POINT:
         _eeprom_item_count++;
         break;
@@ -464,6 +474,7 @@ void AC_PolyFence_loader::scan_eeprom_index_fences(const AC_PolyFenceType type, 
     case AC_PolyFenceType::END_OF_STORAGE:
         INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
         break;
+    case AC_PolyFenceType::PATH_INCLUSION:
     case AC_PolyFenceType::POLYGON_EXCLUSION:
     case AC_PolyFenceType::POLYGON_INCLUSION: {
         const uint8_t vertex_count = fence_storage.read_uint8(read_offset+1);
@@ -476,6 +487,7 @@ void AC_PolyFence_loader::scan_eeprom_index_fences(const AC_PolyFenceType type, 
     case AC_PolyFenceType::CIRCLE_EXCLUSION:
         index.count = 1;
         break;
+    case AC_PolyFenceType::PATH_EXIT_POINT:
     case AC_PolyFenceType::RETURN_POINT:
         index.count = 1;
         break;
@@ -546,6 +558,7 @@ void AC_PolyFence_loader::unload()
     delete[] _loaded_inclusion_boundary;
     _loaded_inclusion_boundary = nullptr;
     _num_loaded_inclusion_boundaries = 0;
+    _num_loaded_path_boundaries = 0;
 
     delete[] _loaded_exclusion_boundary;
     _loaded_exclusion_boundary = nullptr;
@@ -588,11 +601,13 @@ uint16_t AC_PolyFence_loader::sum_of_polygon_point_counts_and_returnpoint()
         case AC_PolyFenceType::CIRCLE_INCLUSION:
         case AC_PolyFenceType::CIRCLE_EXCLUSION:
             break;
+        case AC_PolyFenceType::PATH_EXIT_POINT:
         case AC_PolyFenceType::RETURN_POINT:
             ret += 1;
             break;
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION:
+        case AC_PolyFenceType::PATH_INCLUSION:
             ret += index.count;
             break;
         case AC_PolyFenceType::END_OF_STORAGE:
@@ -667,6 +682,18 @@ bool AC_PolyFence_loader::load_from_eeprom()
               (unsigned)(count * sizeof(ExclusionBoundary)));
         _loaded_exclusion_boundary = NEW_NOTHROW ExclusionBoundary[count];
         if (_loaded_exclusion_boundary == nullptr) {
+            unload();
+            get_loaded_fence_semaphore().give();
+            return false;
+        }
+    }
+
+    { // allocate storage for path inclusion:
+        const uint8_t count = index_fence_count(AC_PolyFenceType::PATH_INCLUSION);
+        Debug("Fence: Allocating %u bytes for inc. path fences",
+              (unsigned)(count * sizeof(InclusionBoundary)));
+        _loaded_inclusion_path_boundary = NEW_NOTHROW InclusionBoundary[count];
+        if (_loaded_inclusion_boundary == nullptr) {
             unload();
             get_loaded_fence_semaphore().give();
             return false;
@@ -757,6 +784,26 @@ bool AC_PolyFence_loader::load_from_eeprom()
             _num_loaded_exclusion_boundaries++;
             break;
         }
+        case AC_PolyFenceType::PATH_INCLUSION: {
+            InclusionBoundary &boundary = _loaded_inclusion_boundary[_num_loaded_inclusion_boundaries];
+            boundary.points = next_storage_point;
+            boundary.points_lla = next_storage_point_lla;
+            boundary.count = index.count;
+            if (index.count < 3) {
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "AC_Fence: invalid path vertex count %u", index.count);
+                storage_valid = false;
+                break;
+            }
+            storage_offset += 1; // skip vertex count
+            if (!read_polygon_from_storage(ekf_origin, storage_offset, index.count, next_storage_point, next_storage_point_lla)) {
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "AC_Fence: path polygon read failed");
+                storage_valid = false;
+                break;
+            }
+            _num_loaded_inclusion_boundaries++;
+            _num_loaded_path_boundaries++;
+            break;
+        }
         case AC_PolyFenceType::CIRCLE_EXCLUSION_INT:
         case AC_PolyFenceType::CIRCLE_EXCLUSION: {
             ExclusionCircle &circle = _loaded_circle_exclusion_boundary[_num_loaded_circle_exclusion_boundaries];
@@ -833,6 +880,34 @@ bool AC_PolyFence_loader::load_from_eeprom()
             if (!scale_latlon_from_origin(ekf_origin, *next_storage_point_lla, *next_storage_point)) {
                 storage_valid = false;
                 GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "PolyFence: latlon read failed");
+                break;
+            }
+            next_storage_point++;
+            next_storage_point_lla++;
+            break;
+        }
+        case AC_PolyFenceType::PATH_EXIT_POINT:
+            if (_loaded_return_point != nullptr) {
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "PolyFence: Multiple path exit points found");
+                storage_valid = false;
+                break;
+            }
+            _loaded_return_point = next_storage_point;
+            if (_loaded_return_point_lla != nullptr) {
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "PolyFence: Multiple path exit points found");
+                storage_valid = false;
+                break;
+            }
+            _loaded_return_point_lla = next_storage_point_lla;
+            // Read the point from storage
+            if (!read_latlon_from_storage(storage_offset, *next_storage_point_lla)) {
+                storage_valid = false;
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "PolyFence: path exit latlon read failed");
+                break;
+            }
+            if (!scale_latlon_from_origin(ekf_origin, *next_storage_point_lla, *next_storage_point)) {
+                storage_valid = false;
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "PolyFence: path exit latlon read failed");
                 break;
             }
             next_storage_point++;
@@ -925,6 +1000,7 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
     uint16_t expected_type_count = 0;
     uint16_t orig_expected_type_count = 0;
     bool seen_return_point = false;
+    bool seen_exit_point = false;
 
     for (uint16_t i=0; i<count; i++) {
         bool validate_latlon = false;
@@ -936,6 +1012,7 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
 #endif
             return false;
 
+        case AC_PolyFenceType::PATH_INCLUSION:
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION:
             if (new_items[i].vertex_count < 3) {
@@ -977,6 +1054,7 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
             validate_latlon = true;
             break;
 
+        case AC_PolyFenceType::PATH_EXIT_POINT:
         case AC_PolyFenceType::RETURN_POINT:
             if (expected_type_count) {
                 GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Received incorrect type (want=%u got=%u)", (unsigned)expecting_type, (unsigned)new_items[i].type);
@@ -984,11 +1062,20 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
             }
 
             // spec says only one return point allowed
-            if (seen_return_point) {
-                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Multiple return points");
-                return false;
+            if (new_items[i].type == AC_PolyFenceType::RETURN_POINT) {
+                if (seen_return_point) {
+                    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Multiple return points");
+                    return false;
+                }
+                seen_return_point = true;
             }
-            seen_return_point = true;
+            else if (new_items[i].type == AC_PolyFenceType::PATH_EXIT_POINT) {
+                if (seen_exit_point) {
+                    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Multiple exit points");
+                    return false;
+                }
+                seen_exit_point = true;
+            }
             validate_latlon = true;
             // TODO: ensure return point is within all fences and
             // outside all exclusion zones
@@ -1018,6 +1105,7 @@ uint16_t AC_PolyFence_loader::fence_storage_space_required(const AC_PolyFenceIte
     while (i < count) {
         ret += 1; // one byte for type
         switch (new_items[i].type) {
+        case AC_PolyFenceType::PATH_INCLUSION:
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION:
             ret += 1 + 8 * new_items[i].vertex_count; // 1 count, 4 lat, 4 lon for each point
@@ -1035,6 +1123,7 @@ uint16_t AC_PolyFence_loader::fence_storage_space_required(const AC_PolyFenceIte
         case AC_PolyFenceType::CIRCLE_EXCLUSION:
             ret += 12; // 4 radius, 4 lat, 4 lon
             break;
+        case AC_PolyFenceType::PATH_EXIT_POINT:
         case AC_PolyFenceType::RETURN_POINT:
             ret += 8; // 4 lat, 4 lon
             break;
@@ -1066,6 +1155,7 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
     for (uint16_t i=0; i<count; i++) {
         const AC_PolyFenceItem new_item = new_items[i];
         switch (new_item.type) {
+        case AC_PolyFenceType::PATH_INCLUSION:
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION:
             if (vertex_count == 0) {
@@ -1123,6 +1213,7 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
             offset += 4;
             break;
         }
+        case AC_PolyFenceType::PATH_EXIT_POINT:
         case AC_PolyFenceType::RETURN_POINT:
             if (!write_type_to_storage(offset, new_item.type)) {
                 return false;
@@ -1168,6 +1259,21 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
     return true;
 }
 
+bool AC_PolyFence_loader::get_path_exit_point(Vector2l &ret)
+{
+    if (!check_indexed()) {
+        return false;
+    }
+
+    const FenceIndex *rp = find_first_fence(AC_PolyFenceType::PATH_EXIT_POINT);
+    if (rp == nullptr) {  // exit point required
+        return false;
+    }
+
+    uint16_t read_offset = rp->storage_offset + 1;
+
+    return read_latlon_from_storage(read_offset, ret);
+}
 
 bool AC_PolyFence_loader::get_return_point(Vector2l &ret)
 {
@@ -1445,6 +1551,42 @@ AC_PolyFence_loader::FenceIndex *AC_PolyFence_loader::get_or_create_include_fenc
         return nullptr;
     }
     AC_PolyFence_loader::FenceIndex *ret = find_first_fence(AC_PolyFenceType::POLYGON_INCLUSION);
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    if (ret == nullptr) {
+        AP_HAL::panic("Failed to index eeprom after creating fence");
+    }
+#endif
+    return ret;
+}
+
+AC_PolyFence_loader::FenceIndex *AC_PolyFence_loader::get_or_create_path_fence()
+{
+    if (!check_indexed()) {
+        return nullptr;
+    }
+    FenceIndex *inclusion = find_first_fence(AC_PolyFenceType::PATH_INCLUSION);
+    if (inclusion != nullptr) {
+        return inclusion;
+    }
+    if (_total < 5) {
+        return nullptr;
+    }
+    if (!write_type_to_storage(_eos_offset, AC_PolyFenceType::PATH_INCLUSION)) {
+        return nullptr;
+    }
+    fence_storage.write_uint8(_eos_offset, 0);
+    _eos_offset++;
+    if (!write_eos_to_storage(_eos_offset)) {
+        return nullptr;
+    }
+
+    if (!index_eeprom()) {
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+        AP_HAL::panic("Failed to index eeprom after creating fence");
+#endif
+        return nullptr;
+    }
+    AC_PolyFence_loader::FenceIndex *ret = find_first_fence(AC_PolyFenceType::PATH_INCLUSION);
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     if (ret == nullptr) {
         AP_HAL::panic("Failed to index eeprom after creating fence");
