@@ -231,7 +231,7 @@ bool AC_PolyFence_loader::breached() const
 //   returns true if location is outside the boundary
 bool AC_PolyFence_loader::breached(const Location& loc) const
 {
-    if (!loaded() || total_poly_fence_count() == 0) {
+    if (!loaded() || total_fence_count() == 0) {
         return false;
     }
 
