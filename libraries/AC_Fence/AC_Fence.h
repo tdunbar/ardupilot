@@ -16,7 +16,8 @@
 #define AC_FENCE_TYPE_CIRCLE                        2       // circular horizontal fence (usually initiates an RTL)
 #define AC_FENCE_TYPE_POLYGON                       4       // polygon horizontal fence
 #define AC_FENCE_TYPE_ALT_MIN                       8       // low alt fence which usually initiates an RTL
-#define AC_FENCE_ARMING_FENCES  (AC_FENCE_TYPE_ALT_MAX | AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_POLYGON)
+#define AC_FENCE_TYPE_PATH                          16      // polygon horizontal fence with entrance and exit
+#define AC_FENCE_ARMING_FENCES  (AC_FENCE_TYPE_ALT_MAX | AC_FENCE_TYPE_CIRCLE | AC_FENCE_TYPE_POLYGON | AC_FENCE_TYPE_PATH)
 #define AC_FENCE_ALL_FENCES (AC_FENCE_ARMING_FENCES | AC_FENCE_TYPE_ALT_MIN)
 
 // valid actions should a fence be breached
@@ -28,6 +29,7 @@
 #define AC_FENCE_ACTION_SMART_RTL_OR_LAND           5       // SmartRTL, if that fails, Land
 #define AC_FENCE_ACTION_GUIDED                      6       // guided mode, with target waypoint as fence return point
 #define AC_FENCE_ACTION_GUIDED_THROTTLE_PASS        7       // guided mode, but pilot retains manual throttle control
+#define AC_FENCE_ACTION_GUIDED_PATH                 8       // guided mode, with target waypoint as path exit point
 
 // give up distance
 #define AC_FENCE_GIVE_UP_DISTANCE                   100.0f  // distance outside the fence at which we should give up and just land.  Note: this is not used by library directly but is intended to be used by the main code
@@ -208,6 +210,9 @@ private:
     /// check_fence_circle - true if circle fence has been newly breached
     bool check_fence_circle();
 
+    /// check_fence_path - true if path fence has been newly breached
+    bool check_fence_path();
+
     /// record_breach - update breach bitmask, time and count
     void record_breach(uint8_t fence_type);
 
@@ -216,6 +221,7 @@ private:
 
     // additional checks for the different fence types:
     bool pre_arm_check_polygon(char *failure_msg, const uint8_t failure_msg_len) const;
+    bool pre_arm_check_path(char *failure_msg, const uint8_t failure_msg_len) const;
     bool pre_arm_check_circle(char *failure_msg, const uint8_t failure_msg_len) const;
     bool pre_arm_check_alt(char *failure_msg, const uint8_t failure_msg_len) const;
     // fence floor is enabled

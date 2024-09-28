@@ -18,6 +18,8 @@ enum class AC_PolyFenceType {
     CIRCLE_INCLUSION_INT  = 94,
     CIRCLE_EXCLUSION      = 93,
     CIRCLE_INCLUSION      = 92,
+    PATH_INCLUSION        = 91,     // paths are inclusion only fences
+    PATH_EXIT_POINT       = 90,     // guided waypoint where vehicle is sent to exit path
 };
 
 // a FenceItem is just a means of passing data about an item into
@@ -81,6 +83,14 @@ public:
     /// returns number of polygon inclusion zones defined
     uint8_t get_inclusion_polygon_count() const {
         return _num_loaded_inclusion_boundaries;
+    }
+
+    ///
+    /// inclusion path polygons
+    ///
+    /// returns number of path inclusion zones defined
+    uint8_t get_inclusion_path_count() const {
+        return _num_loaded_path_boundaries;
     }
 
     /// returns pointer to array of inclusion polygon points and num_points is filled in with the number of points in the polygon
@@ -177,12 +187,21 @@ public:
     // lat/lon.
     bool get_return_point(Vector2l &ret) WARN_IF_UNUSED;
 
-    // return total number of fences - polygons and circles
+    // get_path_exit_point - returns latitude/longitude of path fence exit point.
+    // This works with storage - the returned vector is absolute
+    // lat/lon.
+    bool get_path_exit_point(Vector2l &ret) WARN_IF_UNUSED;
+
+    // return total number of incl/excl fences - polygons and circles
     uint16_t total_fence_count() const {
         return (get_exclusion_polygon_count() +
                 get_inclusion_polygon_count() +
                 get_exclusion_circle_count() +
                 get_inclusion_circle_count());
+
+    // return total number of path fences only
+    uint16_t path_fence_count() const {
+        return (get_inclusion_path_count());
     }
 
 
@@ -274,11 +293,11 @@ private:
     // example, in _loaded_offsets_from_origin
     void unload();
 
-    // pointer into _loaded_offsets_from_origin where the return point
+    // pointer into _loaded_offsets_from_origin where the return (or exit) point
     // can be found:
     Vector2f *_loaded_return_point;
 
-    // pointer into _loaded_points_lla where the return point
+    // pointer into _loaded_points_lla where the return (or exit) point
     // can be found:
     Vector2l *_loaded_return_point_lla;
 
@@ -291,6 +310,7 @@ private:
     InclusionBoundary *_loaded_inclusion_boundary;
 
     uint8_t _num_loaded_inclusion_boundaries;
+    uint8_t _num_loaded_path_boundaries;
 
     class ExclusionBoundary {
     public:
@@ -370,10 +390,19 @@ private:
     // fence to be used for the FENCE_POINT-supplied polygon.  May
     // format the storage appropriately.
     FenceIndex *get_or_create_include_fence();
-    // get_or_create_include_fence - returns a point to a return point
+    // get_or_create_return_point - returns a point to a return point
     // to be used for the FENCE_POINT-supplied return point.  May
     // format the storage appropriately.
     FenceIndex *get_or_create_return_point();
+
+    // get_or_create_path_fence - returns a point to an path
+    // fence to be used for the FENCE_POINT-supplied polygon.  May
+    // format the storage appropriately.
+    FenceIndex *get_or_create_path_fence();
+    // get_or_create_path_exit_point - returns a point to a exit point
+    // to be used for the FENCE_POINT-supplied return point.  May
+    // format the storage appropriately.
+    FenceIndex *get_or_create_path_exit_point();
 #endif
 
     // primitives to write parts of fencepoints out:

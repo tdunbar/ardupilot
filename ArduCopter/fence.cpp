@@ -76,6 +76,12 @@ void Copter::fence_check()
                             set_mode(Mode::Number::LAND, ModeReason::FENCE_BREACHED);
                         }
                         break;
+                    case AC_FENCE_ACTION_GUIDED_PATH:
+                        // Try to navigate to the path exit, if that fails, Land
+                        if (!set_mode(Mode::Number::GUIDED_PATH, ModeReason::FENCE_BREACHED)) {
+                            set_mode(Mode::Number::LAND, ModeReason::FENCE_BREACHED);
+                        }
+                        break;
                     }
                 }
             }
