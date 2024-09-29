@@ -19,7 +19,6 @@ enum class AC_PolyFenceType {
     CIRCLE_EXCLUSION      = 93,
     CIRCLE_INCLUSION      = 92,
     PATH_INCLUSION        = 91,     // paths are inclusion only fences
-    PATH_EXIT_POINT       = 90,     // guided waypoint where vehicle is sent to exit path
 };
 
 // a FenceItem is just a means of passing data about an item into
@@ -33,6 +32,11 @@ public:
     Vector2l loc;
     uint8_t vertex_count;
     float radius;
+};
+class AC_PathFenceItem : public AC_PolyFenceItem {
+public:
+    AC_PathFenceItem() : type(AC_PolyFenceType::PATH_INCLUSION) {}
+    Location exit_loc;
 };
 
 #if AP_FENCE_ENABLED
@@ -59,6 +63,7 @@ public:
     // return the total number of points stored
     uint16_t num_stored_items() const { return _eeprom_item_count; }
     bool get_item(const uint16_t seq, AC_PolyFenceItem &item) WARN_IF_UNUSED;
+    bool get_item(const uint16_t seq, AC_PathFenceItem &item);
 
     ///
     /// exclusion polygons
@@ -186,11 +191,6 @@ public:
     // This works with storage - the returned vector is absolute
     // lat/lon.
     bool get_return_point(Vector2l &ret) WARN_IF_UNUSED;
-
-    // get_path_exit_point - returns latitude/longitude of path fence exit point.
-    // This works with storage - the returned vector is absolute
-    // lat/lon.
-    bool get_path_exit_point(Vector2l &ret) WARN_IF_UNUSED;
 
     // return total number of incl/excl fences - polygons and circles
     uint16_t total_fence_count() const {
