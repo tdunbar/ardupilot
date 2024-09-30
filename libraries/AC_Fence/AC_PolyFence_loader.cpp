@@ -190,40 +190,6 @@ bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PolyFenceItem &item)
     return true;
 }
 
-bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PathFenceItem &item)
-{
-    if (!check_indexed()) {
-        return false;
-    }
-
-    uint16_t vertex_count_offset = 0; // initialised to make compiler happy
-    uint16_t offset;
-    AC_PolyFenceType type;
-    if (!find_storage_offset_for_seq(seq, offset, type, vertex_count_offset)) {
-        return false;
-    }
-
-    if (type == AC_PolyFenceType::END_OF_STORAGE) {
-        // read end-of-storage when I should never do so
-        INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
-        return false;
-    }
-    else if (type != AC_PolyFenceType::PATH_INCLUSION) {  // must be a path polygon
-        return false;
-    }
-
-    item.type = type;
-
-    if (!read_latlon_from_storage(offset, item.loc)) {
-        return false;
-    }
-    item.vertex_count = fence_storage.read_uint8(vertex_count_offset);
-
-    // TODO:  read path exits...
-
-    return true;
-}
-
 bool AC_PolyFence_loader::write_type_to_storage(uint16_t &offset, const AC_PolyFenceType type)
 {
     fence_storage.write_uint8(offset, (uint8_t)type);
@@ -999,7 +965,6 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
     uint16_t expected_type_count = 0;
     uint16_t orig_expected_type_count = 0;
     bool seen_return_point = false;
-    bool seen_exit_point = false;
 
     for (uint16_t i=0; i<count; i++) {
         bool validate_latlon = false;
@@ -1066,13 +1031,6 @@ bool AC_PolyFence_loader::validate_fence(const AC_PolyFenceItem *new_items, uint
                     return false;
                 }
                 seen_return_point = true;
-            }
-            else if (new_items[i].type == AC_PolyFenceType::PATH_EXIT_POINT) {
-                if (seen_exit_point) {
-                    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Multiple exit points");
-                    return false;
-                }
-                seen_exit_point = true;
             }
             validate_latlon = true;
             // TODO: ensure return point is within all fences and
@@ -1153,21 +1111,6 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
         const AC_PolyFenceItem new_item = new_items[i];
         switch (new_item.type) {
         case AC_PolyFenceType::PATH_INCLUSION:
-            if (vertex_count == 0) {
-                // write out new polygon count
-                vertex_count = new_item.vertex_count;
-                total_vertex_count += vertex_count;
-                if (!write_type_to_storage(offset, new_item.type)) {
-                    return false;
-                }
-                fence_storage.write_uint8(offset, vertex_count);
-                offset++;
-            }
-            vertex_count--;
-            if (!write_latlon_to_storage(offset, new_item.loc)) {
-                return false;
-            }
-            break;
         case AC_PolyFenceType::POLYGON_INCLUSION:
         case AC_PolyFenceType::POLYGON_EXCLUSION:
             if (vertex_count == 0) {
@@ -1785,7 +1728,6 @@ void AC_PolyFence_loader::update()
 void AC_PolyFence_loader::init() {};
 
 bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PolyFenceItem &item) { return false; }
-bool AC_PolyFence_loader::get_item(const uint16_t seq, AC_PathFenceItem &item) { return false; }
 
 Vector2f* AC_PolyFence_loader::get_exclusion_polygon(uint16_t index, uint16_t &num_points) const { return nullptr; }
 Vector2f* AC_PolyFence_loader::get_inclusion_polygon(uint16_t index, uint16_t &num_points) const { return nullptr; }

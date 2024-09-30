@@ -33,11 +33,6 @@ public:
     uint8_t vertex_count;
     float radius;
 };
-class AC_PathFenceItem : public AC_PolyFenceItem {
-public:
-    AC_PathFenceItem() : type(AC_PolyFenceType::PATH_INCLUSION) {}
-    Location exit_loc;
-};
 
 #if AP_FENCE_ENABLED
 
@@ -63,7 +58,6 @@ public:
     // return the total number of points stored
     uint16_t num_stored_items() const { return _eeprom_item_count; }
     bool get_item(const uint16_t seq, AC_PolyFenceItem &item) WARN_IF_UNUSED;
-    bool get_item(const uint16_t seq, AC_PathFenceItem &item);
 
     ///
     /// exclusion polygons
@@ -395,14 +389,6 @@ private:
     // format the storage appropriately.
     FenceIndex *get_or_create_return_point();
 
-    // get_or_create_path_fence - returns a point to an path
-    // fence to be used for the FENCE_POINT-supplied polygon.  May
-    // format the storage appropriately.
-    FenceIndex *get_or_create_path_fence();
-    // get_or_create_path_exit_point - returns a point to a exit point
-    // to be used for the FENCE_POINT-supplied return point.  May
-    // format the storage appropriately.
-    FenceIndex *get_or_create_path_exit_point();
 #endif
 
     // primitives to write parts of fencepoints out:
